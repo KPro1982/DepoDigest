@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Deposition Digest - Upload Transcript</title>
     <link rel="stylesheet" href="styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
     <header>
@@ -14,6 +15,7 @@
             </div>
             <ul class="nav-links">
                 <li><a href="index.html">Home</a></li>
+                <li><button class="nav-link-btn" id="restartBtn">Restart</button></li>
             </ul>
         </nav>
     </header>
@@ -31,8 +33,8 @@
                         <h3>Drag and drop your file here</h3>
                         <p>or</p>
                         <label for="fileInput" class="btn btn-primary">Choose File</label>
-                        <input type="file" id="fileInput" accept=".txt,.pdf,.doc,.docx" style="display: none;">
-                        <p class="file-info">Supported formats: TXT, PDF, DOC, DOCX</p>
+                        <input type="file" id="fileInput" accept=".txt,.pdf,.rtf,.doc,.docx" style="display: none;">
+                        <p class="file-info">Supported formats: TXT, PDF, RTF, DOC, DOCX</p>
                     </div>
 
                     <div class="file-preview" id="filePreview" style="display: none;">
@@ -44,14 +46,53 @@
                             </div>
                             <button class="btn-remove" id="removeFile">×</button>
                         </div>
-                        <button class="btn btn-primary btn-upload" id="uploadBtn">Upload and Summarize</button>
+                        <button class="btn btn-primary btn-upload" id="uploadBtn">Upload</button>
                     </div>
 
                     <div class="upload-progress" id="uploadProgress" style="display: none;">
                         <div class="progress-bar">
                             <div class="progress-fill" id="progressFill"></div>
                         </div>
-                        <p class="progress-text">Uploading and processing...</p>
+                        <p class="progress-text" id="progressText">Uploading and processing...</p>
+                    </div>
+
+                    <div class="caption-screen" id="captionScreen" style="display: none;">
+                        <h2>Caption Information</h2>
+                        <div class="caption-info">
+                            <div class="caption-details">
+                                <div class="caption-item">
+                                    <label>Jurisdiction:</label>
+                                    <div id="jurisdiction" class="caption-value">-</div>
+                                </div>
+                                <div class="caption-item">
+                                    <label>Case Name(s):</label>
+                                    <div id="caseNames" class="caption-value">-</div>
+                                </div>
+                                <div class="caption-item">
+                                    <label>Case Number:</label>
+                                    <div id="caseNumber" class="caption-value">-</div>
+                                </div>
+                                <div class="caption-item">
+                                    <label>Deposition Date:</label>
+                                    <div id="depositionDate" class="caption-value">-</div>
+                                </div>
+                                <div class="caption-item">
+                                    <label>Participants:</label>
+                                    <div id="participants" class="caption-value">-</div>
+                                </div>
+                                <div class="caption-item">
+                                    <label>Witness/Deponent:</label>
+                                    <div id="witnesses" class="caption-value">-</div>
+                                </div>
+                                <div class="caption-item">
+                                    <label>Attorney(s):</label>
+                                    <div id="attorneys" class="caption-value">-</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="caption-actions">
+                            <button class="btn btn-primary btn-summarize" id="summarizeBtn">Summarize</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -68,9 +109,64 @@
         const uploadBtn = document.getElementById('uploadBtn');
         const uploadProgress = document.getElementById('uploadProgress');
         const progressFill = document.getElementById('progressFill');
+        const captionScreen = document.getElementById('captionScreen');
+        const summarizeBtn = document.getElementById('summarizeBtn');
+        const jurisdictionEl = document.getElementById('jurisdiction');
+        const caseNamesEl = document.getElementById('caseNames');
+        const caseNumberEl = document.getElementById('caseNumber');
+        const depositionDateEl = document.getElementById('depositionDate');
+        const participantsEl = document.getElementById('participants');
+        const witnessesEl = document.getElementById('witnesses');
+        const attorneysEl = document.getElementById('attorneys');
+        const progressText = document.getElementById('progressText');
 
-        // Click to select file
-        uploadArea.addEventListener('click', () => {
+        // Summarize button handler
+        summarizeBtn.addEventListener('click', () => {
+            // TODO: Implement summarization functionality
+            alert('Summarization feature will be implemented next.');
+        });
+
+        // Backend API endpoint (using Cursor secrets for API key)
+        const API_BASE_URL = window.location.origin;
+
+        // AI-powered extraction of jurisdiction and case name via backend
+        async function extractWithAI(captionText) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/extract-caption`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        captionText: captionText
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || `API Error: ${response.status} - ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                return {
+                    jurisdiction: result.jurisdiction || '',
+                    caseNames: Array.isArray(result.caseNames) ? result.caseNames : [],
+                    participants: Array.isArray(result.participants) ? result.participants : [],
+                    attorneys: Array.isArray(result.attorneys) ? result.attorneys : [],
+                    depositionDate: result.depositionDate || ''
+                };
+            } catch (error) {
+                console.error('AI extraction error:', error);
+                throw error;
+            }
+        }
+
+        // Click to select file (but not if clicking the label, which already triggers it)
+        uploadArea.addEventListener('click', (e) => {
+            // Don't trigger if clicking the label or its children (label already handles it)
+            if (e.target.closest('label[for="fileInput"]')) {
+                return;
+            }
             fileInput.click();
         });
 
@@ -103,13 +199,14 @@
         // Handle file selection
         function handleFile(file) {
             // Validate file type
-            const validTypes = ['text/plain', 'application/pdf', 'application/msword', 
+            const validTypes = ['text/plain', 'application/pdf', 'application/rtf', 'text/rtf',
+                              'application/msword', 
                               'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-            const validExtensions = ['.txt', '.pdf', '.doc', '.docx'];
+            const validExtensions = ['.txt', '.pdf', '.rtf', '.doc', '.docx'];
             const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
             
             if (!validTypes.includes(file.type) && !validExtensions.includes(fileExtension)) {
-                alert('Please upload a valid file format (TXT, PDF, DOC, or DOCX)');
+                alert('Please upload a valid file format (TXT, PDF, RTF, DOC, or DOCX)');
                 return;
             }
 
@@ -118,6 +215,7 @@
             fileSize.textContent = formatFileSize(file.size);
             uploadArea.style.display = 'none';
             filePreview.style.display = 'block';
+            captionScreen.style.display = 'none';
         }
 
         // Format file size
@@ -134,33 +232,548 @@
             fileInput.value = '';
             uploadArea.style.display = 'block';
             filePreview.style.display = 'none';
+            captionScreen.style.display = 'none';
         });
 
+        // Extract text from RTF file
+        function extractTextFromRTF(rtfText) {
+            // RTF files contain formatting codes that need to be stripped
+            let text = rtfText;
+            
+            // Remove RTF header
+            text = text.replace(/^.*?\\rtf1/gi, '');
+            
+            // Remove RTF control words (but preserve some that might be useful)
+            // Remove formatting codes like \b, \i, \ul, etc.
+            text = text.replace(/\\[a-z]+\d*\s?/gi, ' ');
+            
+            // Remove RTF groups that are purely formatting (but be careful with nested braces)
+            // First, remove simple formatting groups
+            text = text.replace(/\{[^}]*\\[a-z]+\d*[^}]*\}/gi, ' ');
+            
+            // Remove remaining braces
+            text = text.replace(/[{}]/g, ' ');
+            
+            // Remove escaped characters
+            text = text.replace(/\\[{}'\\]/g, '');
+            
+            // Remove hex-encoded characters (like \'a0 for non-breaking space)
+            text = text.replace(/\\'[0-9a-f]{2}/gi, ' ');
+            
+            // Remove Unicode escapes
+            text = text.replace(/\\u-?\d+\s?/gi, ' ');
+            
+            // Clean up whitespace
+            text = text.replace(/\s+/g, ' ');
+            text = text.replace(/\n\s*\n+/g, '\n');
+            
+            // Remove leading/trailing whitespace
+            text = text.trim();
+            
+            return text;
+        }
+
+        // Wait for PDF.js library to load
+        async function waitForPDFJS(maxWait = 5000) {
+            const startTime = Date.now();
+            while (typeof pdfjsLib === 'undefined' && (Date.now() - startTime) < maxWait) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            if (typeof pdfjsLib === 'undefined') {
+                throw new Error('PDF.js library failed to load. Please refresh the page.');
+            }
+        }
+
+        // Check if text contains table of contents or index of exhibits
+        function hasTableOfContentsOrIndex(text) {
+            const tocPatterns = [
+                /TABLE\s+OF\s+CONTENTS/i,
+                /INDEX\s+OF\s+EXHIBITS/i,
+                /EXHIBIT\s+INDEX/i,
+                /LIST\s+OF\s+EXHIBITS/i,
+                /EXHIBITS?\s+LIST/i,
+                /CONTENTS\s*$/i,
+                /^\s*PAGE\s*$/i,
+                /^\s*EXHIBIT\s+PAGE\s*$/i
+            ];
+            
+            const upperText = text.toUpperCase();
+            for (const pattern of tocPatterns) {
+                if (pattern.test(upperText)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Extract text from PDF file (first few pages until TOC/Index)
+        async function extractTextFromPDF(file) {
+            try {
+                // Wait for PDF.js to be available
+                await waitForPDFJS();
+
+                // Set up PDF.js worker
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+                const arrayBuffer = await file.arrayBuffer();
+                const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+                const pdf = await loadingTask.promise;
+                
+                let fullText = '';
+                const maxPages = Math.min(10, pdf.numPages); // Check up to 10 pages
+                
+                // Extract text from first few pages until we hit TOC/Index
+                for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+                    const page = await pdf.getPage(pageNum);
+                    const textContent = await page.getTextContent();
+                    
+                    // Combine all text items with proper spacing
+                    const textItems = textContent.items.map(item => item.str);
+                    const pageText = textItems.join(' ');
+                    
+                    // Check if this page contains TOC or Index
+                    if (hasTableOfContentsOrIndex(pageText)) {
+                        // Stop before this page
+                        break;
+                    }
+                    
+                    // Add page text with page break marker
+                    fullText += (fullText ? '\n\n' : '') + pageText;
+                    
+                    // Also check if accumulated text now contains TOC/Index
+                    if (hasTableOfContentsOrIndex(fullText)) {
+                        // Remove the last page that triggered the TOC/Index detection
+                        const lines = fullText.split('\n\n');
+                        lines.pop(); // Remove last page
+                        fullText = lines.join('\n\n');
+                        break;
+                    }
+                }
+                
+                return fullText;
+            } catch (error) {
+                console.error('Error extracting PDF text:', error);
+                if (error.message.includes('password') || error.message.includes('encrypted')) {
+                    throw new Error('PDF is password-protected or encrypted. Please provide an unencrypted PDF.');
+                } else if (error.message.includes('library')) {
+                    throw new Error('PDF.js library is not loaded. Please refresh the page and try again.');
+                } else {
+                    throw new Error('Failed to extract text from PDF: ' + error.message);
+                }
+            }
+        }
+
+        // Extract caption section from text (first few pages until TOC/Index)
+        function extractCaptionSection(text) {
+            const lines = text.split('\n');
+            let captionLines = [];
+            
+            // Look through lines until we find TOC/Index
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                
+                // Check if this line indicates TOC or Index
+                if (hasTableOfContentsOrIndex(line)) {
+                    break;
+                }
+                
+                captionLines.push(line);
+                
+                // Also check accumulated text periodically
+                const accumulatedText = captionLines.join('\n');
+                if (hasTableOfContentsOrIndex(accumulatedText)) {
+                    // Remove the last few lines that triggered the detection
+                    captionLines = captionLines.slice(0, -5);
+                    break;
+                }
+            }
+            
+            // If we didn't find TOC/Index, take first 500 lines (roughly 5-10 pages)
+            if (captionLines.length === 0 || captionLines.length > 500) {
+                captionLines = lines.slice(0, 500);
+            }
+            
+            return captionLines.join('\n');
+        }
+
+        // Parse caption page from text content
+        async function parseCaptionPage(text) {
+            const captionData = {
+                jurisdiction: '',
+                caseNames: [],
+                caseNumber: '',
+                depositionDate: '',
+                participants: [],
+                witnesses: [],
+                attorneys: []
+            };
+
+            // Extract caption section (first few pages until TOC/Index)
+            const captionSection = extractCaptionSection(text);
+            const upperText = captionSection.toUpperCase();
+
+            // Use AI to extract jurisdiction, case name, participants, attorneys, and deposition date
+            try {
+                progressText.textContent = 'Using AI to extract caption information...';
+                const aiResult = await extractWithAI(captionSection);
+                captionData.jurisdiction = aiResult.jurisdiction;
+                captionData.caseNames = aiResult.caseNames;
+                captionData.participants = aiResult.participants || [];
+                captionData.attorneys = aiResult.attorneys || [];
+                captionData.depositionDate = aiResult.depositionDate || '';
+            } catch (error) {
+                console.error('AI extraction failed, falling back to regex:', error);
+                // Fallback to regex if AI fails
+                progressText.textContent = 'AI extraction failed, using fallback method...';
+                const fallbackResult = extractJurisdictionAndCaseNameFallback(captionSection);
+                captionData.jurisdiction = fallbackResult.jurisdiction;
+                captionData.caseNames = fallbackResult.caseNames;
+                // Fallback doesn't extract participants/attorneys/date, so they remain empty
+            }
+
+            // Fallback function for regex-based extraction (used if AI fails)
+            function extractJurisdictionAndCaseNameFallback(captionSection) {
+                const result = {
+                    jurisdiction: '',
+                    caseNames: []
+                };
+
+                // Extract Jurisdiction (must contain "county" for state court or "district" for federal court)
+                const lines = captionSection.split('\n').map(line => line.trim());
+                const topLines = lines.slice(0, 100);
+                
+                // Look for the two-line pattern: "SUPERIOR COURT OF THE STATE OF [STATE]" followed by "COUNTY OF [COUNTY]"
+                for (let i = 0; i < Math.min(50, topLines.length - 1); i++) {
+                    const line1 = topLines[i] || '';
+                    const line2 = topLines[i + 1] || '';
+                    const upperLine1 = line1.toUpperCase();
+                    const upperLine2 = line2.toUpperCase();
+                    
+                    const pattern1 = /^SUPERIOR\s+COURT\s+OF\s+THE\s+STATE\s+OF\s+([A-Z][A-Za-z\s]+)$/i;
+                    const pattern2 = /^COUNTY\s+OF\s+([A-Z][A-Za-z\s]+)$/i;
+                    
+                    const match1 = upperLine1.match(pattern1);
+                    const match2 = upperLine2.match(pattern2);
+                    
+                    if (match1 && match2) {
+                        const state = match1[1].trim();
+                        const county = match2[1].trim();
+                        result.jurisdiction = `Superior Court of the State of ${state}, County of ${county}`;
+                        break;
+                    }
+                }
+                
+                // Extract Case Names (MUST contain "v." or "vs")
+                const caseNamePatterns = [
+                    /([A-Z][A-Za-z\s,&\.\-']{2,50}?)\s+v\.?\s+([A-Z][A-Za-z\s,&\.\-']{2,50}?)(?:\s|$|\n|,|;)/g,
+                    /([A-Z][A-Za-z\s,&\.\-']{2,50}?)\s+vs\.?\s+([A-Z][A-Za-z\s,&\.\-']{2,50}?)(?:\s|$|\n|,|;)/gi
+                ];
+
+                for (const pattern of caseNamePatterns) {
+                    const matches = [...captionSection.matchAll(pattern)];
+                    if (matches.length > 0) {
+                        matches.forEach(match => {
+                            if (match[1] && match[2]) {
+                                let plaintiff = match[1].trim().replace(/\s+/g, ' ');
+                                let defendant = match[2].trim().replace(/\s+/g, ' ');
+                                
+                                if (plaintiff.length >= 3 && defendant.length >= 3) {
+                                    const upperPlaintiff = plaintiff.toUpperCase();
+                                    const upperDefendant = defendant.toUpperCase();
+                                    if (!upperPlaintiff.includes('COUNTY') && !upperPlaintiff.includes('DISTRICT') &&
+                                        !upperDefendant.includes('COUNTY') && !upperDefendant.includes('DISTRICT')) {
+                                        const caseName = `${plaintiff} v. ${defendant}`;
+                                        if (!result.caseNames.includes(caseName) && caseName.length < 200) {
+                                            result.caseNames.push(caseName);
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        if (result.caseNames.length > 0) break;
+                    }
+                }
+
+                return result;
+            }
+
+            // Extract Case Number
+            const caseNumberPatterns = [
+                /(?:CASE\s+NO\.?|DOCKET\s+NO\.?|CIVIL\s+ACTION\s+NO\.?|FILE\s+NO\.?)[:\s]+([A-Z0-9\-:,\s/]+?)(?:\s|$|\n|,)/gi,
+                /(?:NO\.?\s+)([A-Z0-9\-:,\s/]{3,40})(?:\s|$|\n|,)/gi
+            ];
+            
+            for (const pattern of caseNumberPatterns) {
+                const matches = [...captionSection.matchAll(pattern)];
+                if (matches.length > 0) {
+                    for (const match of matches) {
+                        if (match[1]) {
+                            let caseNum = match[1].trim();
+                            // Clean up common prefixes
+                            caseNum = caseNum.replace(/^(?:CASE\s+NO\.?|DOCKET\s+NO\.?|CIVIL\s+ACTION\s+NO\.?|FILE\s+NO\.?)[:\s]+/i, '').trim();
+                            if (caseNum.length >= 3 && caseNum.length <= 50 && /[A-Z0-9]/.test(caseNum)) {
+                                captionData.caseNumber = caseNum;
+                                break;
+                            }
+                        }
+                    }
+                    if (captionData.caseNumber) break;
+                }
+            }
+
+            // Case names and jurisdiction are now extracted by AI above
+
+            // Extract Witness/Deponent Names
+            const witnessPatterns = [
+                // Deposition of [Name]
+                /(?:DEPOSITION\s+OF|DEPOSITION\s+TAKEN\s+OF)[:\s]+([A-Z][A-Za-z\s,\.\-']{2,60}?)(?:\s+TAKEN|\s+BEFORE|\s+ON\s+\d{1,2}|\s+AT\s+|\n|$|,|;)/gi,
+                // Deponent: [Name]
+                /(?:DEPONENT[:\s]+)([A-Z][A-Za-z\s,\.\-']{2,60}?)(?:\s+TAKEN|\s+BEFORE|\s+ON\s+\d{1,2}|\s+AT\s+|\n|$|,|;)/gi,
+                // Testimony of [Name]
+                /(?:TESTIMONY\s+OF)[:\s]+([A-Z][A-Za-z\s,\.\-']{2,60}?)(?:\s+TAKEN|\s+BEFORE|\s+ON\s+\d{1,2}|\s+AT\s+|\n|$|,|;)/gi,
+                // Witness: [Name]
+                /(?:WITNESS[:\s]+)([A-Z][A-Za-z\s,\.\-']{2,60}?)(?:\s+TAKEN|\s+BEFORE|\s+ON\s+\d{1,2}|\s+AT\s+|\n|$|,|;)/gi
+            ];
+
+            for (const pattern of witnessPatterns) {
+                const matches = [...captionSection.matchAll(pattern)];
+                if (matches.length > 0) {
+                    matches.forEach(match => {
+                        if (match[1]) {
+                            let witness = match[1].trim();
+                            
+                            // Remove common suffixes and clean up
+                            witness = witness.replace(/\s*,\s*ESQ\.?.*$/i, '');
+                            witness = witness.replace(/\s*,\s*ATTORNEY.*$/i, '');
+                            witness = witness.replace(/\s*,\s*DEPONENT.*$/i, '');
+                            witness = witness.replace(/\s*,\s*WITNESS.*$/i, '');
+                            
+                            // Clean up whitespace
+                            witness = witness.replace(/\s+/g, ' ').trim();
+                            
+                            // Take first 5 words (typically first and last name)
+                            witness = witness.split(/\s+/).slice(0, 5).join(' ').trim();
+                            
+                            // Validate witness name
+                            if (witness.length > 3 && witness.length < 100 && 
+                                !captionData.witnesses.includes(witness) &&
+                                !witness.match(/^(TAKEN|BEFORE|ON|THE|A|AN|AT|DEPOSITION|TESTIMONY|WITNESS|DEPONENT)$/i) &&
+                                /^[A-Z]/.test(witness)) { // Must start with capital letter
+                                captionData.witnesses.push(witness);
+                            }
+                        }
+                    });
+                }
+            }
+
+            // Extract Attorney Names
+            const attorneyPatterns = [
+                /(?:ATTORNEY\s+FOR|COUNSEL\s+FOR|REPRESENTED\s+BY)[:\s]+([A-Z][A-Za-z\s,\.&\-']+?)(?:\s+BY|\s+ON\s+\d|\n|$|,)/gi,
+                /([A-Z][A-Za-z\s,\.&\-']+?),\s+ESQ\.?(?:\s+ATTORNEY|\s+COUNSEL|\s+FOR|\n|$)/gi,
+                /([A-Z][A-Za-z\s,\.&\-']+?)\s+ESQ\.?(?:\s+ATTORNEY|\s+COUNSEL|\s+FOR|\n|$)/gi
+            ];
+
+            for (const pattern of attorneyPatterns) {
+                const matches = [...captionSection.matchAll(pattern)];
+                if (matches.length > 0) {
+                    matches.forEach(match => {
+                        if (match[1]) {
+                            let attorney = match[1].trim();
+                            // Clean up and limit length
+                            attorney = attorney.split(/\s+/).slice(0, 6).join(' ').trim();
+                            if (attorney.length > 3 && attorney.length < 150 && 
+                                !captionData.attorneys.includes(attorney) &&
+                                !attorney.match(/^(FOR|BY|ON|THE|A|AN|ATTORNEY|COUNSEL)$/i)) {
+                                captionData.attorneys.push(attorney);
+                            }
+                        }
+                    });
+                }
+            }
+
+            // Clean up and format results
+            if (captionData.caseNames.length === 0) {
+                // Try to find case name in title area (first 50 lines of caption section)
+                const captionLines = captionSection.split('\n');
+                const titleArea = captionLines.slice(0, 50).join(' ');
+                const titleMatch = titleArea.match(/([A-Z][A-Za-z\s,&]{10,100})/);
+                if (titleMatch && titleMatch[1].length > 10) {
+                    captionData.caseNames.push(titleMatch[1].trim());
+                }
+            }
+
+            return captionData;
+        }
+
+        // Display caption information
+        function displayCaptionInfo(captionData) {
+            jurisdictionEl.textContent = captionData.jurisdiction || 'Not found';
+            caseNamesEl.textContent = captionData.caseNames.length > 0 
+                ? captionData.caseNames.join('; ') 
+                : 'Not found';
+            caseNumberEl.textContent = captionData.caseNumber || 'Not found';
+            depositionDateEl.textContent = captionData.depositionDate || 'Not found';
+            participantsEl.textContent = captionData.participants && captionData.participants.length > 0 
+                ? captionData.participants.join('; ') 
+                : 'Not found';
+            witnessesEl.textContent = captionData.witnesses.length > 0 
+                ? captionData.witnesses.join('; ') 
+                : 'Not found';
+            
+            // Format attorneys with their affiliations
+            if (captionData.attorneys && captionData.attorneys.length > 0) {
+                const attorneyStrings = captionData.attorneys.map(attorney => {
+                    if (typeof attorney === 'object' && attorney.name) {
+                        const affiliation = attorney.affiliation ? ` (${attorney.affiliation})` : '';
+                        return attorney.name + affiliation;
+                    }
+                    return attorney;
+                });
+                attorneysEl.textContent = attorneyStrings.join('; ');
+            } else {
+                attorneysEl.textContent = 'Not found';
+            }
+            
+            // Caption screen is shown by the upload handler after processing
+        }
+
+        // Restart button handler
+        restartBtn.addEventListener('click', async () => {
+            try {
+                // Call restart endpoint on server
+                const response = await fetch(`${API_BASE_URL}/api/restart`, {
+                    method: 'POST'
+                });
+                
+                // Show restart message regardless of response
+                const messageEl = document.createElement('div');
+                messageEl.className = 'restart-message';
+                messageEl.textContent = 'Restarted';
+                messageEl.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--primary-color); color: white; padding: 2rem 4rem; border-radius: 8px; font-size: 1.5rem; font-weight: 600; z-index: 10000; box-shadow: 0 4px 16px rgba(0,0,0,0.3);';
+                document.body.appendChild(messageEl);
+                
+                // Remove message after 2 seconds
+                setTimeout(() => {
+                    messageEl.remove();
+                }, 2000);
+                
+                // Reset the form
+                fileInput.value = '';
+                uploadArea.style.display = 'block';
+                filePreview.style.display = 'none';
+                captionScreen.style.display = 'none';
+            } catch (error) {
+                console.error('Restart error:', error);
+                // Fallback: just reset the UI and show message
+                fileInput.value = '';
+                uploadArea.style.display = 'block';
+                filePreview.style.display = 'none';
+                captionScreen.style.display = 'none';
+                
+                const messageEl = document.createElement('div');
+                messageEl.className = 'restart-message';
+                messageEl.textContent = 'Restarted';
+                messageEl.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--primary-color); color: white; padding: 2rem 4rem; border-radius: 8px; font-size: 1.5rem; font-weight: 600; z-index: 10000; box-shadow: 0 4px 16px rgba(0,0,0,0.3);';
+                document.body.appendChild(messageEl);
+                
+                setTimeout(() => {
+                    messageEl.remove();
+                }, 2000);
+            }
+        });
+
+        // Save caption information to localStorage
+        function saveCaptionInfo(fileName, captionData) {
+            const savedData = JSON.parse(localStorage.getItem('depositionCaptions') || '{}');
+            savedData[fileName] = {
+                ...captionData,
+                extractedDate: new Date().toISOString()
+            };
+            localStorage.setItem('depositionCaptions', JSON.stringify(savedData));
+        }
+
         // Upload button
-        uploadBtn.addEventListener('click', () => {
+        uploadBtn.addEventListener('click', async () => {
             if (!fileInput.files.length) return;
             
+            const file = fileInput.files[0];
             filePreview.style.display = 'none';
             uploadProgress.style.display = 'block';
+            captionScreen.style.display = 'none';
             
-            // Simulate upload progress (replace with actual upload logic)
-            let progress = 0;
-            const interval = setInterval(() => {
-                progress += 10;
-                progressFill.style.width = progress + '%';
+            // Read and parse file
+            try {
+                const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
+                let text = '';
                 
-                if (progress >= 100) {
-                    clearInterval(interval);
-                    // Here you would typically send the file to your backend
-                    // For now, we'll just show a message
+                // Update progress
+                progressFill.style.width = '10%';
+                progressText.textContent = 'Extracting text from file...';
+                
+                // Extract text based on file type
+                if (fileExtension === '.txt') {
+                    text = await file.text();
+                    progressFill.style.width = '30%';
+                    progressText.textContent = 'Extracting caption information...';
+                } else if (fileExtension === '.rtf') {
+                    const rtfText = await file.text();
+                    text = extractTextFromRTF(rtfText);
+                    progressFill.style.width = '30%';
+                    progressText.textContent = 'Extracting caption information...';
+                } else if (fileExtension === '.pdf') {
+                    progressText.textContent = 'Extracting text from PDF pages...';
+                    text = await extractTextFromPDF(file);
+                    progressFill.style.width = '30%';
+                    progressText.textContent = 'Extracting caption information...';
+                } else {
+                    // For DOC/DOCX files, show message that text extraction is needed
+                    progressFill.style.width = '100%';
                     setTimeout(() => {
-                        alert('File uploaded successfully! Summary generation will be implemented next.');
+                        alert('Caption extraction is currently supported for TXT, PDF, and RTF files only. DOC and DOCX support coming soon.');
                         uploadProgress.style.display = 'none';
-                        uploadArea.style.display = 'block';
-                        fileInput.value = '';
+                        filePreview.style.display = 'block';
                     }, 500);
+                    return;
                 }
-            }, 200);
+                
+                // Update progress
+                progressFill.style.width = '50%';
+                progressText.textContent = 'Extracting caption information with AI...';
+                
+                // Parse caption section (first few pages until TOC/Index)
+                // This now uses AI for jurisdiction and case name extraction
+                const captionData = await parseCaptionPage(text);
+                
+                // Update progress
+                progressFill.style.width = '70%';
+                progressText.textContent = 'Saving extracted information...';
+                
+                // Save caption information
+                saveCaptionInfo(file.name, captionData);
+                
+                // Update progress
+                progressFill.style.width = '90%';
+                progressText.textContent = 'Finalizing...';
+                
+                // Display caption information
+                displayCaptionInfo(captionData);
+                
+                // Complete progress
+                progressFill.style.width = '100%';
+                progressText.textContent = 'Complete!';
+                
+                setTimeout(() => {
+                    uploadProgress.style.display = 'none';
+                    // Show caption screen instead of file preview
+                    captionScreen.style.display = 'block';
+                }, 500);
+            } catch (error) {
+                console.error('Error processing file:', error);
+                alert('Error processing file: ' + error.message + '. Please try again.');
+                uploadProgress.style.display = 'none';
+                filePreview.style.display = 'block';
+                captionScreen.style.display = 'none';
+            }
         });
     </script>
 </body>
