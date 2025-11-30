@@ -90,6 +90,43 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="examination-section" id="examinationSection" style="display: none; margin-top: 2rem; padding-top: 2rem; border-top: 2px solid #e0e0e0;">
+                            <h3>Examination Section</h3>
+                            <div class="caption-details">
+                                <div class="caption-item">
+                                    <label>Examination Start Line:</label>
+                                    <div id="examinationStartLine" class="caption-value">-</div>
+                                </div>
+                                <div class="caption-item">
+                                    <label>Examination Start Text:</label>
+                                    <div id="examinationStartText" class="caption-value" style="font-style: italic; max-width: 600px;">-</div>
+                                </div>
+                                <div class="caption-item">
+                                    <label>Court Reporter:</label>
+                                    <div id="courtReporter" class="caption-value">-</div>
+                                </div>
+                                <div class="caption-item">
+                                    <label>Deponent:</label>
+                                    <div id="deponent" class="caption-value">-</div>
+                                </div>
+                                <div class="caption-item">
+                                    <label>Attorneys (from Appearance):</label>
+                                    <div id="examinationAttorneys" class="caption-value">-</div>
+                                </div>
+                                <div class="caption-item">
+                                    <label>Questioning Attorney (Noticing Party):</label>
+                                    <div id="questioningAttorney" class="caption-value" style="font-weight: 600; color: #2563eb;">-</div>
+                                </div>
+                                <div class="caption-item">
+                                    <label>Defending Attorney:</label>
+                                    <div id="defendingAttorney" class="caption-value" style="font-weight: 600; color: #dc2626;">-</div>
+                                </div>
+                                <div class="caption-item">
+                                    <label>All Attorneys (from Examination):</label>
+                                    <div id="allExaminationAttorneys" class="caption-value">-</div>
+                                </div>
+                            </div>
+                        </div>
                         <div class="caption-actions">
                             <button class="btn btn-primary btn-summarize" id="summarizeBtn">Summarize</button>
                         </div>
@@ -119,6 +156,15 @@
         const witnessesEl = document.getElementById('witnesses');
         const attorneysEl = document.getElementById('attorneys');
         const progressText = document.getElementById('progressText');
+        const examinationSection = document.getElementById('examinationSection');
+        const examinationStartLineEl = document.getElementById('examinationStartLine');
+        const examinationStartTextEl = document.getElementById('examinationStartText');
+        const courtReporterEl = document.getElementById('courtReporter');
+        const deponentEl = document.getElementById('deponent');
+        const examinationAttorneysEl = document.getElementById('examinationAttorneys');
+        const questioningAttorneyEl = document.getElementById('questioningAttorney');
+        const defendingAttorneyEl = document.getElementById('defendingAttorney');
+        const allExaminationAttorneysEl = document.getElementById('allExaminationAttorneys');
 
         // Summarize button handler
         summarizeBtn.addEventListener('click', () => {
@@ -158,6 +204,92 @@
             } catch (error) {
                 console.error('AI extraction error:', error);
                 throw error;
+            }
+        }
+
+        // AI-powered identification of examination section start
+        async function identifyExaminationSection(transcriptText) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/identify-examination`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        transcriptText: transcriptText
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || `API Error: ${response.status} - ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                return {
+                    examinationStartIndex: result.examinationStartIndex || -1,
+                    examinationStartLine: result.examinationStartLine || -1,
+                    examinationStartText: result.examinationStartText || '',
+                    depositionDate: result.depositionDate || '',
+                    courtReporter: result.courtReporter || '',
+                    attorneys: Array.isArray(result.attorneys) ? result.attorneys : [],
+                    deponent: result.deponent || '',
+                    appearanceSection: result.appearanceSection || '',
+                    questioningAttorney: result.questioningAttorney || '',
+                    defendingAttorney: result.defendingAttorney || '',
+                    examinationAttorneys: Array.isArray(result.examinationAttorneys) ? result.examinationAttorneys : []
+                };
+            } catch (error) {
+                console.error('Examination section identification error:', error);
+                throw error;
+            }
+        }
+
+        // Display examination section information
+        function displayExaminationInfo(examinationData) {
+            if (examinationData.examinationStartLine > 0) {
+                examinationStartLineEl.textContent = examinationData.examinationStartLine;
+                examinationStartTextEl.textContent = examinationData.examinationStartText || 'Not found';
+                courtReporterEl.textContent = examinationData.courtReporter || 'Not found';
+                deponentEl.textContent = examinationData.deponent || 'Not found';
+                
+                // Format attorneys from appearance section
+                if (examinationData.attorneys && examinationData.attorneys.length > 0) {
+                    const attorneyStrings = examinationData.attorneys.map(attorney => {
+                        if (typeof attorney === 'object' && attorney.name) {
+                            const role = attorney.role ? ` (${attorney.role})` : '';
+                            return attorney.name + role;
+                        }
+                        return attorney;
+                    });
+                    examinationAttorneysEl.textContent = attorneyStrings.join('; ');
+                } else {
+                    examinationAttorneysEl.textContent = 'Not found';
+                }
+                
+                // Display questioning attorney (the one asking questions)
+                questioningAttorneyEl.textContent = examinationData.questioningAttorney || 'Not identified';
+                
+                // Display defending attorney (the one making objections)
+                defendingAttorneyEl.textContent = examinationData.defendingAttorney || 'Not identified';
+                
+                // Display all attorneys from examination section with their roles
+                if (examinationData.examinationAttorneys && examinationData.examinationAttorneys.length > 0) {
+                    const allAttorneyStrings = examinationData.examinationAttorneys.map(attorney => {
+                        if (typeof attorney === 'object' && attorney.name) {
+                            const role = attorney.role ? ` (${attorney.role})` : '';
+                            return attorney.name + role;
+                        }
+                        return attorney;
+                    });
+                    allExaminationAttorneysEl.textContent = allAttorneyStrings.join('; ');
+                } else {
+                    allExaminationAttorneysEl.textContent = 'Not found';
+                }
+                
+                examinationSection.style.display = 'block';
+            } else {
+                examinationSection.style.display = 'none';
             }
         }
 
@@ -746,17 +878,74 @@
                 
                 // Update progress
                 progressFill.style.width = '70%';
+                progressText.textContent = 'Identifying examination section...';
+                
+                // Identify examination section (use full text for TXT/RTF, or more pages for PDF)
+                let fullText = text;
+                if (fileExtension === '.pdf') {
+                    // For PDFs, extract more pages to find examination section
+                    try {
+                        await waitForPDFJS();
+                        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+                        const arrayBuffer = await file.arrayBuffer();
+                        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+                        const pdf = await loadingTask.promise;
+                        
+                        let pdfFullText = '';
+                        const maxPages = Math.min(100, pdf.numPages); // Extract up to 100 pages
+                        
+                        for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+                            const page = await pdf.getPage(pageNum);
+                            const textContent = await page.getTextContent();
+                            const textItems = textContent.items.map(item => item.str);
+                            const pageText = textItems.join(' ');
+                            pdfFullText += (pdfFullText ? '\n\n' : '') + pageText;
+                        }
+                        
+                        fullText = pdfFullText;
+                    } catch (pdfError) {
+                        console.warn('Could not extract full PDF text for examination section:', pdfError);
+                        // Use the caption text we already have
+                    }
+                }
+                
+                let examinationData = {
+                    examinationStartIndex: -1,
+                    examinationStartLine: -1,
+                    examinationStartText: '',
+                    depositionDate: '',
+                    courtReporter: '',
+                    attorneys: [],
+                    deponent: '',
+                    appearanceSection: '',
+                    questioningAttorney: '',
+                    defendingAttorney: '',
+                    examinationAttorneys: []
+                };
+                
+                try {
+                    examinationData = await identifyExaminationSection(fullText);
+                } catch (examinationError) {
+                    console.warn('Could not identify examination section:', examinationError);
+                    // Continue without examination data
+                }
+                
+                // Update progress
+                progressFill.style.width = '85%';
                 progressText.textContent = 'Saving extracted information...';
                 
                 // Save caption information
                 saveCaptionInfo(file.name, captionData);
                 
                 // Update progress
-                progressFill.style.width = '90%';
+                progressFill.style.width = '95%';
                 progressText.textContent = 'Finalizing...';
                 
                 // Display caption information
                 displayCaptionInfo(captionData);
+                
+                // Display examination section information
+                displayExaminationInfo(examinationData);
                 
                 // Complete progress
                 progressFill.style.width = '100%';
